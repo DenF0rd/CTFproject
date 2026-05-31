@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /secret.html
+Disallow: /admin
+Disallow: /hidden
+
+# Подсказка: флаг спрятан на странице, которая запрещена для индексации
+# Попробуйте зайти на /secret.html
