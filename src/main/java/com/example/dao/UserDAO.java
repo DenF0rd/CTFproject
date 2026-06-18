@@ -2,16 +2,17 @@ package com.example.dao;
 
 import com.example.model.User;
 import com.example.util.DBConnection;
+import com.example.util.RedisCache;
+import com.fasterxml.jackson.core.type.TypeReference;
+
 import java.sql.*;
 import java.util.*;
-import com.example.util.PasswordUtil;
 
 public class UserDAO {
 
-    // ========== АУТЕНТИФИКАЦИЯ И ПОИСК ==========
-
+    // ========== АУТЕНТИФИКАЦИЯ ==========
     public User authenticateUser(String email, String password) {
-        // Убираем AND is_active = true из запроса, чтобы получить пользователя даже если заблокирован
+        // Не кэшируем результат аутентификации
         String sql = "SELECT id, username, email, password_hash, rating, is_verified, is_admin, is_active, bio, age, city, created_at, last_login " +
                 "FROM users WHERE email = ?";
         try (Connection conn = DBConnection.getConnection();
@@ -20,7 +21,7 @@ public class UserDAO {
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
                 String storedHash = rs.getString("password_hash");
-                if (PasswordUtil.checkPassword(password, storedHash)) {
+                if (com.example.util.PasswordUtil.checkPassword(password, storedHash)) {
                     User user = new User();
                     user.setId(rs.getInt("id"));
                     user.setUsername(rs.getString("username"));
@@ -29,7 +30,7 @@ public class UserDAO {
                     user.setScore(rs.getInt("rating"));
                     user.setVerified(rs.getBoolean("is_verified"));
                     user.setAdmin(rs.getBoolean("is_admin"));
-                    user.setActive(rs.getBoolean("is_active"));  // <--- ВАЖНО: загружаем статус блокировки
+                    user.setActive(rs.getBoolean("is_active"));
                     user.setBio(rs.getString("bio"));
                     user.setCity(rs.getString("city"));
                     user.setAge(rs.getInt("age"));
@@ -44,15 +45,31 @@ public class UserDAO {
         return null;
     }
 
+    // ========== ПОЛУЧЕНИЕ ПОЛЬЗОВАТЕЛЯ ПО ID (с кэшем) ==========
     public User findById(int id) {
-        String sql = "SELECT id, username, email, password_hash, rating, is_verified, is_admin, bio, age, city, created_at, last_login " +
-                "FROM users WHERE id = ?";
+        String cacheKey = "user_" + id;
+
+        User cached = RedisCache.get(cacheKey, User.class);
+        if (cached != null) {
+            System.out.println("Redis HIT: " + cacheKey);
+            return cached;
+        }
+
+        System.out.println("Redis MISS: " + cacheKey + " - loading from DB");
+
+        String sql = "SELECT u.id, u.username, u.email, u.password_hash, u.rating, " +
+                "u.is_verified, u.is_admin, u.bio, u.age, u.city, u.created_at, u.last_login, " +
+                "COALESCE((SELECT COUNT(*) FROM solved_tasks WHERE user_id = u.id), 0) as solved_count " +
+                "FROM users u WHERE u.id = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, id);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
-                return extractUserFromResultSet(rs);
+                User user = extractUserFromResultSet(rs);
+                user.setSolvedCount(rs.getInt("solved_count"));
+                RedisCache.put(cacheKey, user, 60);
+                return user;
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -60,15 +77,28 @@ public class UserDAO {
         return null;
     }
 
+    // ========== ПОЛУЧЕНИЕ ПОЛЬЗОВАТЕЛЯ ПО EMAIL (с кэшем) ==========
     public User findByEmail(String email) {
-        String sql = "SELECT id, username, email, password_hash, rating, is_verified, is_admin, bio, age, city, created_at, last_login " +
-                "FROM users WHERE email = ?";
+        String cacheKey = "user_email_" + email;
+
+        User cached = RedisCache.get(cacheKey, User.class);
+        if (cached != null) {
+            return cached;
+        }
+
+        String sql = "SELECT u.id, u.username, u.email, u.password_hash, u.rating, " +
+                "u.is_verified, u.is_admin, u.bio, u.age, u.city, u.created_at, u.last_login, " +
+                "COALESCE((SELECT COUNT(*) FROM solved_tasks WHERE user_id = u.id), 0) as solved_count " +
+                "FROM users u WHERE u.email = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, email);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
-                return extractUserFromResultSet(rs);
+                User user = extractUserFromResultSet(rs);
+                user.setSolvedCount(rs.getInt("solved_count"));
+                RedisCache.put(cacheKey, user, 60);
+                return user;
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -77,6 +107,7 @@ public class UserDAO {
     }
 
     public boolean emailExists(String email) {
+        // Простой запрос, не кэшируем
         String sql = "SELECT 1 FROM users WHERE email = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -89,10 +120,8 @@ public class UserDAO {
         return false;
     }
 
-    // ========== РЕГИСТРАЦИЯ ==========
-
+    // ========== РЕГИСТРАЦИЯ (с инвалидацией) ==========
     public boolean registerUser(String username, String email, String passwordHash) {
-        // passwordHash теперь передаётся уже хэшированным
         String sql = "INSERT INTO users (username, email, password_hash, is_verified) VALUES (?, ?, ?, false)";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -100,35 +129,13 @@ public class UserDAO {
             stmt.setString(2, email);
             stmt.setString(3, passwordHash);
             stmt.executeUpdate();
+            RedisCache.remove("users_all");
+            RedisCache.remove("users_all_with_details");
             return true;
         } catch (SQLException e) {
             e.printStackTrace();
         }
         return false;
-    }
-
-    // ========== КОДЫ ПОДТВЕРЖДЕНИЯ ==========
-
-    public void saveVerificationCode(String email, String code) {
-        String getUserIdSql = "SELECT id FROM users WHERE email = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(getUserIdSql)) {
-            stmt.setString(1, email);
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next()) {
-                int userId = rs.getInt("id");
-
-                String insertSql = "INSERT INTO verification_codes (user_id, code, type, expires_at) VALUES (?, ?, 'email_verification', NOW() + INTERVAL '1 day')";
-                try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
-                    insertStmt.setInt(1, userId);
-                    insertStmt.setString(2, code);
-                    insertStmt.executeUpdate();
-                    System.out.println("Verification code saved for user: " + email);
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
     }
 
     public boolean verifyEmail(String email, String code) {
@@ -148,12 +155,13 @@ public class UserDAO {
                     updateStmt.setInt(1, codeId);
                     updateStmt.executeUpdate();
                 }
-
                 String verifySql = "UPDATE users SET is_verified = true WHERE email = ?";
                 try (PreparedStatement verifyStmt = conn.prepareStatement(verifySql)) {
                     verifyStmt.setString(1, email);
                     verifyStmt.executeUpdate();
                 }
+                RedisCache.remove("user_email_" + email);
+                RedisCache.removeByPrefix("user_");
                 return true;
             }
         } catch (SQLException e) {
@@ -162,14 +170,14 @@ public class UserDAO {
         return false;
     }
 
-    // ========== ПРОСТОЕ ПОДТВЕРЖДЕНИЕ (ДЛЯ QUICK LOGIN) ==========
-
     public void verifyEmailSimple(String email) {
         String sql = "UPDATE users SET is_verified = true WHERE email = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, email);
             stmt.executeUpdate();
+            RedisCache.remove("user_email_" + email);
+            RedisCache.removeByPrefix("user_");
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -181,17 +189,29 @@ public class UserDAO {
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, userId);
             stmt.executeUpdate();
+            RedisCache.remove("user_" + userId);
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
-    // ========== СТАТИСТИКА ==========
-
+    // ========== ПОЛУЧЕНИЕ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ (с кэшем) ==========
     public List<User> getAllUsers() {
+        String cacheKey = "users_all";
+
+        List<User> cached = RedisCache.get(cacheKey, new TypeReference<List<User>>() {});
+        if (cached != null) {
+            System.out.println("Redis HIT: " + cacheKey);
+            return cached;
+        }
+
+        System.out.println("Redis MISS: " + cacheKey + " - loading from DB");
+
         List<User> users = new ArrayList<>();
-        String sql = "SELECT id, username, email, rating, is_verified, is_admin, created_at, last_login " +
-                "FROM users WHERE is_active = true ORDER BY rating DESC";
+        String sql = "SELECT u.id, u.username, u.email, u.rating, u.is_verified, u.is_admin, " +
+                "u.created_at, u.last_login, " +
+                "COALESCE((SELECT COUNT(*) FROM solved_tasks WHERE user_id = u.id), 0) as solved_count " +
+                "FROM users u WHERE u.is_active = true ORDER BY u.rating DESC";
         try (Connection conn = DBConnection.getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
@@ -205,15 +225,19 @@ public class UserDAO {
                 user.setAdmin(rs.getBoolean("is_admin"));
                 user.setRegistrationDate(rs.getTimestamp("created_at"));
                 user.setLastLogin(rs.getTimestamp("last_login"));
+                user.setSolvedCount(rs.getInt("solved_count"));
                 users.add(user);
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
+
+        RedisCache.put(cacheKey, users, 30);
         return users;
     }
 
     public int getUserScore(int userId) {
+        // Простой запрос, не кэшируем
         String sql = "SELECT rating FROM users WHERE id = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -244,6 +268,7 @@ public class UserDAO {
     }
 
     public int getUserRank(int userId) {
+        // Не кэшируем, так как рейтинг часто меняется
         String sql = "SELECT COUNT(*) + 1 as rank FROM users WHERE rating > (SELECT rating FROM users WHERE id = ?)";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -272,8 +297,7 @@ public class UserDAO {
         return 0;
     }
 
-    // ========== ПРОФИЛЬ ==========
-
+    // ========== ПРОФИЛЬ (с инвалидацией) ==========
     public void updateProfile(int userId, String bio, String city, int age) {
         String sql = "UPDATE users SET bio = ?, city = ?, age = ? WHERE id = ?";
         try (Connection conn = DBConnection.getConnection();
@@ -283,11 +307,13 @@ public class UserDAO {
             stmt.setInt(3, age);
             stmt.setInt(4, userId);
             stmt.executeUpdate();
+            RedisCache.remove("user_" + userId);
+            RedisCache.remove("users_all");
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
-    // Сделать пользователя администратором
+
     public void makeAdmin(int userId) {
         String sql = "UPDATE users SET is_admin = true WHERE id = ?";
         try (Connection conn = DBConnection.getConnection();
@@ -295,14 +321,17 @@ public class UserDAO {
             stmt.setInt(1, userId);
             stmt.executeUpdate();
             System.out.println("User " + userId + " is now admin");
+            RedisCache.remove("user_" + userId);
+            RedisCache.remove("users_all");
+            RedisCache.remove("users_all_with_details");
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
     // ========== ИСТОРИЯ ==========
-
     public List<Map<String, Object>> getUserSolveHistory(int userId) {
+        // Не кэшируем историю
         List<Map<String, Object>> history = new ArrayList<>();
         String sql = "SELECT st.*, t.title, t.points, t.category_id, c.name as category_name " +
                 "FROM solved_tasks st " +
@@ -328,7 +357,6 @@ public class UserDAO {
         return history;
     }
 
-    // Обновить никнейм
     public void updateUsername(int userId, String newUsername) {
         String sql = "UPDATE users SET username = ? WHERE id = ?";
         try (Connection conn = DBConnection.getConnection();
@@ -336,12 +364,14 @@ public class UserDAO {
             stmt.setString(1, newUsername);
             stmt.setInt(2, userId);
             stmt.executeUpdate();
+            RedisCache.remove("user_" + userId);
+            RedisCache.remove("users_all");
+            RedisCache.remove("users_all_with_details");
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
-    // Обновить аватар
     public void updateAvatar(int userId, String avatarPath) {
         String sql = "UPDATE users SET avatar_path = ? WHERE id = ?";
         try (Connection conn = DBConnection.getConnection();
@@ -349,12 +379,14 @@ public class UserDAO {
             stmt.setString(1, avatarPath);
             stmt.setInt(2, userId);
             stmt.executeUpdate();
+            RedisCache.remove("user_" + userId);
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
     public List<Map<String, Object>> getUserContestHistory(int userId) {
+        // Не кэшируем
         List<Map<String, Object>> contests = new ArrayList<>();
         String sql = "SELECT c.*, " +
                 "COUNT(DISTINCT st.id) as solved_tasks, " +
@@ -388,7 +420,6 @@ public class UserDAO {
     }
 
     // ========== ВСПОМОГАТЕЛЬНЫЕ ==========
-
     private User extractUserFromResultSet(ResultSet rs) throws SQLException {
         User user = new User();
         user.setId(rs.getInt("id"));
@@ -400,11 +431,14 @@ public class UserDAO {
         user.setAdmin(rs.getBoolean("is_admin"));
         user.setRegistrationDate(rs.getTimestamp("created_at"));
         user.setLastLogin(rs.getTimestamp("last_login"));
-
-        // Дополнительные поля (могут отсутствовать)
         try { user.setBio(rs.getString("bio")); } catch (SQLException e) { user.setBio(""); }
         try { user.setCity(rs.getString("city")); } catch (SQLException e) { user.setCity(""); }
         try { user.setAge(rs.getInt("age")); } catch (SQLException e) { user.setAge(0); }
+
+        // Пытаемся получить solved_count, если есть
+        try { user.setSolvedCount(rs.getInt("solved_count")); } catch (SQLException e) {
+            user.setSolvedCount(0);
+        }
 
         return user;
     }
@@ -417,6 +451,9 @@ public class UserDAO {
             stmt.setInt(2, userId);
             stmt.executeUpdate();
             System.out.println("Added " + pointsToAdd + " points to user " + userId);
+            RedisCache.remove("user_" + userId);
+            RedisCache.remove("users_all");
+            RedisCache.remove("users_all_with_details");
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -427,11 +464,19 @@ public class UserDAO {
         return teamDAO.getUserTeams(userId);
     }
 
-    // Получить всех пользователей с детальной информацией (для админа)
     public List<User> getAllUsersWithDetails() {
+        String cacheKey = "users_all_with_details";
+
+        List<User> cached = RedisCache.get(cacheKey, new TypeReference<List<User>>() {});
+        if (cached != null) {
+            return cached;
+        }
+
         List<User> users = new ArrayList<>();
-        String sql = "SELECT id, username, email, rating, is_verified, is_admin, is_active, created_at, last_login " +
-                "FROM users ORDER BY id";
+        String sql = "SELECT u.id, u.username, u.email, u.rating, u.is_verified, u.is_admin, " +
+                "u.is_active, u.created_at, u.last_login, " +
+                "COALESCE((SELECT COUNT(*) FROM solved_tasks WHERE user_id = u.id), 0) as solved_count " +
+                "FROM users u ORDER BY u.id";
         try (Connection conn = DBConnection.getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
@@ -443,18 +488,20 @@ public class UserDAO {
                 user.setScore(rs.getInt("rating"));
                 user.setVerified(rs.getBoolean("is_verified"));
                 user.setAdmin(rs.getBoolean("is_admin"));
-                user.setActive(rs.getBoolean("is_active"));  // <--- ДОБАВИТЬ
+                user.setActive(rs.getBoolean("is_active"));
                 user.setRegistrationDate(rs.getTimestamp("created_at"));
                 user.setLastLogin(rs.getTimestamp("last_login"));
+                user.setSolvedCount(rs.getInt("solved_count"));
                 users.add(user);
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
+
+        RedisCache.put(cacheKey, users, 60);
         return users;
     }
 
-    // Блокировка/разблокировка пользователя (используем is_active)
     public boolean toggleUserActive(int userId) {
         String sql = "UPDATE users SET is_active = NOT is_active WHERE id = ?";
         try (Connection conn = DBConnection.getConnection();
@@ -462,12 +509,9 @@ public class UserDAO {
             stmt.setInt(1, userId);
             int updated = stmt.executeUpdate();
             System.out.println("Toggle user active. User ID: " + userId + ", Updated: " + updated);
-
-            // Вывод нового статуса для проверки
-            User user = findById(userId);
-            if (user != null) {
-                System.out.println("User " + user.getUsername() + " is_active: " + user.isActive());
-            }
+            RedisCache.remove("user_" + userId);
+            RedisCache.remove("users_all");
+            RedisCache.remove("users_all_with_details");
             return updated > 0;
         } catch (SQLException e) {
             e.printStackTrace();
@@ -475,7 +519,6 @@ public class UserDAO {
         return false;
     }
 
-    // Получить статус блокировки пользователя
     public boolean isUserBlocked(int userId) {
         String sql = "SELECT is_active FROM users WHERE id = ?";
         try (Connection conn = DBConnection.getConnection();
@@ -483,7 +526,7 @@ public class UserDAO {
             stmt.setInt(1, userId);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
-                return !rs.getBoolean("is_active"); // false = заблокирован
+                return !rs.getBoolean("is_active");
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -492,15 +535,17 @@ public class UserDAO {
     }
 
     public User authenticateUserWithStatus(String email, String password) {
-        String sql = "SELECT id, username, email, password_hash, rating, is_verified, is_admin, is_active, bio, age, city, created_at, last_login " +
-                "FROM users WHERE email = ?";
+        String sql = "SELECT u.id, u.username, u.email, u.password_hash, u.rating, " +
+                "u.is_verified, u.is_admin, u.is_active, u.bio, u.age, u.city, u.created_at, u.last_login, " +
+                "COALESCE((SELECT COUNT(*) FROM solved_tasks WHERE user_id = u.id), 0) as solved_count " +
+                "FROM users u WHERE u.email = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, email);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
                 String storedHash = rs.getString("password_hash");
-                if (PasswordUtil.checkPassword(password, storedHash)) {
+                if (com.example.util.PasswordUtil.checkPassword(password, storedHash)) {
                     User user = new User();
                     user.setId(rs.getInt("id"));
                     user.setUsername(rs.getString("username"));
@@ -509,7 +554,8 @@ public class UserDAO {
                     user.setScore(rs.getInt("rating"));
                     user.setVerified(rs.getBoolean("is_verified"));
                     user.setAdmin(rs.getBoolean("is_admin"));
-                    user.setActive(rs.getBoolean("is_active"));  // КЛЮЧЕВОЕ ПОЛЕ
+                    user.setActive(rs.getBoolean("is_active"));
+                    user.setSolvedCount(rs.getInt("solved_count"));  // <--- ДОБАВЛЯЕМ
                     user.setBio(rs.getString("bio"));
                     user.setCity(rs.getString("city"));
                     user.setAge(rs.getInt("age"));
@@ -522,5 +568,86 @@ public class UserDAO {
             e.printStackTrace();
         }
         return null;
+    }
+
+    /**
+     * Сохранить код подтверждения для пользователя
+     */
+    public void saveVerificationCode(String email, String code) {
+        String getUserIdSql = "SELECT id FROM users WHERE email = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(getUserIdSql)) {
+            stmt.setString(1, email);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                int userId = rs.getInt("id");
+                String insertSql = "INSERT INTO verification_codes (user_id, code, type, expires_at) VALUES (?, ?, 'email_verification', NOW() + INTERVAL '1 day')";
+                try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                    insertStmt.setInt(1, userId);
+                    insertStmt.setString(2, code);
+                    insertStmt.executeUpdate();
+                    System.out.println("Verification code saved for user: " + email);
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Проверить код подтверждения и активировать аккаунт
+     */
+    public boolean verifyEmailByCode(String email, String code) {
+        String sql = "SELECT vc.id FROM verification_codes vc " +
+                "JOIN users u ON vc.user_id = u.id " +
+                "WHERE u.email = ? AND vc.code = ? AND vc.type = 'email_verification' " +
+                "AND vc.expires_at > NOW() AND vc.is_used = false";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, email);
+            stmt.setString(2, code);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                int codeId = rs.getInt("id");
+                String updateSql = "UPDATE verification_codes SET is_used = true WHERE id = ?";
+                try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                    updateStmt.setInt(1, codeId);
+                    updateStmt.executeUpdate();
+                }
+
+                String verifySql = "UPDATE users SET is_verified = true WHERE email = ?";
+                try (PreparedStatement verifyStmt = conn.prepareStatement(verifySql)) {
+                    verifyStmt.setString(1, email);
+                    verifyStmt.executeUpdate();
+                }
+
+                // Инвалидируем кэш
+                RedisCache.remove("user_email_" + email);
+                RedisCache.removeByPrefix("user_");
+
+                return true;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    /**
+     * Проверить, подтверждён ли email
+     */
+    public boolean isEmailVerified(String email) {
+        String sql = "SELECT is_verified FROM users WHERE email = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, email);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getBoolean("is_verified");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
     }
 }

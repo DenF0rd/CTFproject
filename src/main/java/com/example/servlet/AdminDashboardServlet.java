@@ -3,12 +3,12 @@ package com.example.servlet;
 import com.example.dao.ContestDAO;
 import com.example.dao.TaskDAO;
 import com.example.dao.UserDAO;
-import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 
 @WebServlet("/admin")
@@ -37,9 +37,9 @@ public class AdminDashboardServlet extends HttpServlet {
 
         // Получаем статистику
         int totalUsers = userDAO.getTotalUsersCount();
-        int totalContests = contestDAO.getAllContests((int) session.getAttribute("userId")).size();
-        int totalTasks = 0; // нужно добавить метод
-        int totalSubmissions = 0; // нужно добавить метод
+        int totalContests = contestDAO.getAllContestsForAdmin().size();
+        int totalTasks = taskDAO.getAllTasks().size();
+        int totalSubmissions = taskDAO.getTotalSubmissionsCount();
 
         req.setAttribute("totalUsers", totalUsers);
         req.setAttribute("totalContests", totalContests);

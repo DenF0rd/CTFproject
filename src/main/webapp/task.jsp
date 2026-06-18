@@ -17,6 +17,30 @@
     if (submissionHistory == null) submissionHistory = new ArrayList<>();
 
     boolean isSolved = task != null && (boolean) task.get("is_solved");
+
+    // Очки, которые пользователь реально получил за эту задачу
+    int userEarnedPoints = 0;
+    if (request.getAttribute("userEarnedPoints") != null) {
+        userEarnedPoints = (int) request.getAttribute("userEarnedPoints");
+    }
+
+    // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ДАННЫХ О ДИНАМИЧЕСКОЙ СТОИМОСТИ
+    int currentPoints = 0;
+    int basePoints = 0;
+    int minPoints = 10;
+    int solvesCount = 0;
+
+    if (task != null) {
+        currentPoints = task.containsKey("points") ? (int) task.get("points") : 0;
+        basePoints = task.containsKey("base_points") && task.get("base_points") != null ?
+                (int) task.get("base_points") : currentPoints;
+        minPoints = task.containsKey("min_points") && task.get("min_points") != null ?
+                (int) task.get("min_points") : 10;
+        solvesCount = task.containsKey("solves_count") ? (int) task.get("solves_count") : 0;
+    }
+
+    int pointsReduced = basePoints - currentPoints;
+    boolean priceChanged = solvesCount > 0 && basePoints != currentPoints;
 %>
 <!DOCTYPE html>
 <html lang="ru">
@@ -92,6 +116,7 @@
             text-decoration: none;
             color: rgba(255, 255, 255, 0.7);
             font-weight: 500;
+            transition: color 0.3s;
         }
 
         .nav-links a:hover {
@@ -104,6 +129,12 @@
             padding: 8px 18px;
             border-radius: 12px;
             text-decoration: none;
+            transition: all 0.3s;
+        }
+
+        .logout-btn:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
         }
 
         .container {
@@ -147,6 +178,10 @@
             font-size: 1.5rem;
             font-weight: 700;
             margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
         }
 
         .task-meta {
@@ -158,6 +193,25 @@
 
         .task-meta span {
             color: #a78bfa;
+        }
+
+        .price-info {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(245, 158, 11, 0.15);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+        }
+
+        .price-info .reduced {
+            color: #f59e0b;
+        }
+
+        .price-info .original {
+            text-decoration: line-through;
+            opacity: 0.5;
         }
 
         .task-content {
@@ -197,11 +251,17 @@
             color: white;
             font-family: monospace;
             font-size: 1rem;
+            transition: all 0.3s;
         }
 
         .flag-input:focus {
             outline: none;
             border-color: #8b5cf6;
+            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.2);
+        }
+
+        .flag-input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
         }
 
         .btn {
@@ -226,6 +286,7 @@
         .btn-primary:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+            transform: none !important;
         }
 
         .message-success {
@@ -279,6 +340,10 @@
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
 
+        .history-row:last-child {
+            border-bottom: none;
+        }
+
         .history-flag {
             font-family: monospace;
             font-size: 0.85rem;
@@ -314,15 +379,23 @@
             color: white;
         }
 
+        .empty-history {
+            text-align: center;
+            padding: 2rem;
+            color: rgba(255, 255, 255, 0.4);
+        }
+
         @media (max-width: 768px) {
             .navbar {
                 flex-direction: column;
                 height: auto;
                 padding: 1rem;
+                gap: 0.8rem;
             }
             .nav-links {
                 flex-wrap: wrap;
                 justify-content: center;
+                gap: 1rem;
             }
             .container {
                 padding: 0 1rem;
@@ -337,6 +410,14 @@
                 flex-direction: column;
                 text-align: center;
                 gap: 0.3rem;
+                padding: 0.8rem 1rem;
+            }
+            .task-meta {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+            .task-title {
+                font-size: 1.2rem;
             }
         }
     </style>
@@ -356,10 +437,10 @@
     <div class="nav-links">
         <a href="${pageContext.request.contextPath}/contests">Соревнования</a>
         <a href="${pageContext.request.contextPath}/teams">Команды</a>
-        <a href="${pageContext.request.contextPath}/scoreboard" class="active">Рейтинг</a>
+        <a href="${pageContext.request.contextPath}/scoreboard">Рейтинг</a>
         <a href="${pageContext.request.contextPath}/profile?id=<%= session.getAttribute("userId") %>">Профиль</a>
         <% if (session.getAttribute("isAdmin") != null && (Boolean) session.getAttribute("isAdmin")) { %>
-        <a href="${pageContext.request.contextPath}/admin">👑 Админ-панель</a>
+        <a href="${pageContext.request.contextPath}/admin">Админ-панель</a>
         <% } %>
     </div>
     <a href="${pageContext.request.contextPath}/logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Выйти</a>
@@ -371,10 +452,10 @@
     </a>
 
     <% if (task == null) { %>
-        <div class="task-card" style="text-align: center; padding: 3rem;">
-            <i class="fas fa-exclamation-triangle" style="font-size: 3rem; opacity: 0.5;"></i>
-            <p style="margin-top: 1rem;">Задача не найдена</p>
-        </div>
+    <div class="task-card" style="text-align: center; padding: 3rem;">
+        <i class="fas fa-exclamation-triangle" style="font-size: 3rem; opacity: 0.5;"></i>
+        <p style="margin-top: 1rem;">Задача не найдена</p>
+    </div>
     <% } else { %>
 
     <div class="task-card">
@@ -382,13 +463,30 @@
             <div class="task-title">
                 <%= task.get("title") %>
                 <% if (isSolved) { %>
-                    <span class="solved-badge"><i class="fas fa-check"></i> Решено</span>
+                <span class="solved-badge"><i class="fas fa-check"></i> Решено</span>
                 <% } %>
             </div>
             <div class="task-meta">
                 <span><i class="fas fa-tag"></i> <%= task.get("category") != null ? task.get("category") : "Без категории" %></span>
-                <span><i class="fas fa-star"></i> <%= task.get("points") %> очков</span>
-                <span><i class="fas fa-users"></i> Решили: <%= task.get("solves_count") %> человек</span>
+
+                <%-- ДИНАМИЧЕСКАЯ СТОИМОСТЬ --%>
+                <span class="price-info">
+                    <i class="fas fa-star" style="color: #f59e0b;"></i>
+                    <strong><%= currentPoints %></strong> очков
+                    <% if (priceChanged) { %>
+                        <span class="original"><%= basePoints %></span>
+                        <span class="reduced">(-<%= pointsReduced %>)</span>
+                    <% } %>
+                </span>
+
+                <span><i class="fas fa-users"></i> Решили: <%= solvesCount %> человек</span>
+
+                <% if (priceChanged && !isSolved) { %>
+                <span style="color: #f59e0b; font-size: 0.7rem;">
+                        <i class="fas fa-arrow-down"></i>
+                        Стоимость снижена на <%= pointsReduced %> очков
+                    </span>
+                <% } %>
             </div>
         </div>
 
@@ -399,41 +497,46 @@
             </div>
 
             <!-- Файлы -->
-            <% if (task.get("files") != null && !((String)task.get("files")).isEmpty()) {
-                String[] files = ((String)task.get("files")).split(",");
-            %>
+            <% if (task.get("file_url") != null && !((String)task.get("file_url")).isEmpty()) { %>
             <div class="files-list">
-                <% for (String file : files) { %>
-                    <a href="${pageContext.request.contextPath}/uploads/<%= file.trim() %>" class="file-link" download>
-                        <i class="fas fa-download"></i> <%= file.trim() %>
-                    </a>
-                <% } %>
+                <a href="${pageContext.request.contextPath}/<%= task.get("file_url") %>" class="file-link" download>
+                    <i class="fas fa-download"></i> Скачать файл
+                </a>
             </div>
             <% } %>
 
             <!-- Форма отправки флага -->
             <div class="flag-form">
                 <% if (message != null) { %>
-                <div class="message-success"><%= message %></div>
+                <div class="message-success"><i class="fas fa-check-circle"></i> <%= message %></div>
                 <% } %>
                 <% if (error != null) { %>
-                <div class="message-error"><%= error %></div>
+                <div class="message-error"><i class="fas fa-exclamation-circle"></i> <%= error %></div>
                 <% } %>
 
                 <% if (isSolved) { %>
                 <div class="message-success">
-                    <i class="fas fa-trophy"></i> Вы уже решили эту задачу! Получено <%= task.get("points") %> очков.
+                    <i class="fas fa-trophy" style="color: #f59e0b;"></i>
+                    Вы уже решили эту задачу!
+                    <div style="margin-top: 0.5rem;">
+                        Получено: <strong><%= userEarnedPoints %></strong> очков
+                        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem; display: block; margin-top: 0.2rem;">
+                            Текущая стоимость задачи: <%= currentPoints %> очков
+                        </span>
+                    </div>
                 </div>
                 <% } else { %>
                 <form action="${pageContext.request.contextPath}/task" method="post" id="flagForm">
                     <input type="hidden" name="taskId" value="<%= task.get("id") %>">
                     <input type="hidden" name="contestId" value="<%= contestId %>">
                     <div style="font-weight: 500; margin-bottom: 0.5rem;">
-                        <i class="fas fa-flag-checkered"></i> Флаг:
+                        <i class="fas fa-flag-checkered"></i> Введите флаг:
                     </div>
                     <div class="flag-input-group">
-                        <input type="text" name="flag" class="flag-input" placeholder="CTF{...}" required>
-                        <button type="button" class="btn btn-primary" onclick="submitFlagForm()">Проверить флаг →</button>
+                        <input type="text" name="flag" class="flag-input" placeholder="CTF{...}" required autocomplete="off">
+                        <button type="button" class="btn btn-primary" onclick="submitFlagForm()">
+                            <i class="fas fa-paper-plane"></i> Проверить
+                        </button>
                     </div>
                 </form>
                 <% } %>
@@ -457,46 +560,69 @@
                     const flag = flagInput.value.trim();
 
                     if (!flag) {
-                        alert('Введите флаг!');
+                        alert('⚠️ Введите флаг!');
+                        flagInput.focus();
                         return;
                     }
 
                     formSubmitting = true;
 
-                    // Отключаем кнопку
                     const submitBtn = document.querySelector('.flag-input-group .btn-primary');
                     if (submitBtn) {
                         submitBtn.disabled = true;
-                        submitBtn.textContent = '⏳ Проверка...';
+                        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Проверка...';
                     }
 
                     form.submit();
                 }
+
+                // Обработка Enter в поле ввода
+                document.addEventListener('DOMContentLoaded', function() {
+                    const flagInput = document.querySelector('.flag-input');
+                    if (flagInput) {
+                        flagInput.addEventListener('keypress', function(e) {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                submitFlagForm();
+                            }
+                        });
+                    }
+                });
             </script>
 
             <!-- История попыток -->
-            <% if (!submissionHistory.isEmpty()) { %>
             <div style="margin-top: 1.5rem;">
-                <h3 style="margin-bottom: 1rem; font-size: 1.1rem;">
+                <h3 style="margin-bottom: 1rem; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
                     <i class="fas fa-history"></i> История попыток
+                    <span style="font-size: 0.7rem; color: rgba(255,255,255,0.4); font-weight: 400;">
+                        (последние 10)
+                    </span>
                 </h3>
+                <% if (submissionHistory.isEmpty()) { %>
+                <div class="empty-history">
+                    <i class="fas fa-inbox" style="font-size: 2rem; opacity: 0.3;"></i>
+                    <p style="margin-top: 0.5rem;">Пока нет попыток</p>
+                </div>
+                <% } else { %>
                 <div class="history-table">
                     <% for (Map<String, Object> attempt : submissionHistory) { %>
                     <div class="history-row">
-                        <div class="history-flag"><%= attempt.get("flag") %></div>
+                        <div class="history-flag"><code><%= attempt.get("flag") %></code></div>
                         <div class="<%= (boolean)attempt.get("is_correct") ? "history-correct" : "history-wrong" %>">
                             <% if ((boolean)attempt.get("is_correct")) { %>
-                                <i class="fas fa-check-circle"></i> Правильно
+                            <i class="fas fa-check-circle"></i> Правильно
                             <% } else { %>
-                                <i class="fas fa-times-circle"></i> Неправильно
+                            <i class="fas fa-times-circle"></i> Неправильно
                             <% } %>
                         </div>
-                        <div class="history-date"><%= attempt.get("submitted_at") %></div>
+                        <div class="history-date" style="font-size: 0.7rem; color: rgba(255,255,255,0.4);">
+                            <%= attempt.get("submitted_at") %>
+                        </div>
                     </div>
                     <% } %>
                 </div>
+                <% } %>
             </div>
-            <% } %>
         </div>
     </div>
 

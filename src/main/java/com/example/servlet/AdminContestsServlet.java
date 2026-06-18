@@ -4,12 +4,12 @@ import com.example.dao.ContestDAO;
 import com.example.dao.TaskDAO;
 import com.example.model.Contest;
 import com.example.model.Task;
-import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -61,7 +61,7 @@ public class AdminContestsServlet extends HttpServlet {
         }
 
         // Список всех соревнований
-        List<Contest> contests = contestDAO.getAllContests(userId);
+        List<Contest> contests = contestDAO.getAllContestsForAdmin();
         req.setAttribute("contests", contests);
         req.getRequestDispatcher("/admin/contests.jsp").forward(req, resp);
     }

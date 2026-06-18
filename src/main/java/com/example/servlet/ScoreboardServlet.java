@@ -2,12 +2,15 @@ package com.example.servlet;
 
 import com.example.dao.UserDAO;
 import com.example.model.User;
-import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import com.example.util.RedisCache;
+import com.fasterxml.jackson.core.type.TypeReference;
+
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.List;
 
@@ -26,14 +29,22 @@ public class ScoreboardServlet extends HttpServlet {
             return;
         }
 
-        // Получаем всех пользователей, отсортированных по рейтингу
-        List<User> users = userDAO.getAllUsers();
-
-        // Получаем текущего пользователя
         int currentUserId = (int) session.getAttribute("userId");
+
+        // Получаем список пользователей из кэша или БД
+        String cacheKey = "scoreboard_users";
+        List<User> users = RedisCache.get(cacheKey, new TypeReference<List<User>>() {});
+
+        if (users == null) {
+            System.out.println("Redis MISS: " + cacheKey + " - loading from DB");
+            users = userDAO.getAllUsers();
+            RedisCache.put(cacheKey, users, 30);
+        } else {
+            System.out.println("Redis HIT: " + cacheKey);
+        }
+
         User currentUser = userDAO.findById(currentUserId);
 
-        // Находим место текущего пользователя
         int currentRank = 1;
         for (User user : users) {
             if (user.getId() == currentUserId) {

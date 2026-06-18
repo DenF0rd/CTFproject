@@ -1,6 +1,7 @@
 package com.example.model;
 
 import java.sql.Timestamp;
+import java.util.Date;
 
 public class Contest {
     private int id;
@@ -48,7 +49,6 @@ public class Contest {
     public boolean isActive() { return isActive; }
     public void setActive(boolean active) { isActive = active; }
 
-    public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 
     public int getCreatedBy() { return createdBy; }
@@ -89,5 +89,26 @@ public class Contest {
 
     public String getEndTimeFormatted() {
         return endTime != null ? endTime.toString() : "";
+    }
+
+    public String getStatus() {
+        if (startTime == null || endTime == null) {
+            return "unknown";
+        }
+
+        Date now = new Date();
+        if (now.before(startTime)) {
+            return "upcoming";
+        } else if (now.after(endTime)) {
+            return "finished";
+        } else {
+            return "active";
+        }
+    }
+
+    public boolean isActuallyActive() {
+        Date now = new Date();
+        return startTime != null && endTime != null &&
+                !now.before(startTime) && !now.after(endTime);
     }
 }

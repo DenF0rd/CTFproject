@@ -15,10 +15,18 @@ public class Task {
     private int solvesCount;
     private Timestamp createdAt;
     private boolean solvedByUser;
+    private int basePoints;
+    private int minPoints;
 
     public Task() {}
 
     // Геттеры и сеттеры
+    public int getBasePoints() { return basePoints; }
+    public void setBasePoints(int basePoints) { this.basePoints = basePoints; }
+
+    public int getMinPoints() { return minPoints; }
+    public void setMinPoints(int minPoints) { this.minPoints = minPoints; }
+
     public int getId() { return id; }
     public void setId(int id) { this.id = id; }
 
@@ -54,4 +62,16 @@ public class Task {
 
     public boolean isSolvedByUser() { return solvedByUser; }
     public void setSolvedByUser(boolean solvedByUser) { this.solvedByUser = solvedByUser; }
+
+    @Override
+    public String toString() {
+        return "Task{" +
+                "id=" + id +
+                ", title='" + title + '\'' +
+                ", points=" + points +
+                ", basePoints=" + basePoints +
+                ", minPoints=" + minPoints +
+                ", solvesCount=" + solvesCount +
+                '}';
+    }
 }

@@ -314,10 +314,7 @@
         <form action="${pageContext.request.contextPath}/quick-login" method="post">
             <div class="quick-buttons">
                 <button type="submit" name="role" value="admin" class="quick-btn admin">👑 Админ</button>
-                <button type="submit" name="role" value="user" class="quick-btn user">👤 Пользователь</button>
-            </div>
-            <div class="quick-buttons">
-                <button type="submit" name="role" value="test" class="quick-btn test">🧪 Тестовый</button>
+                <button type="submit" name="role" value="user" class="quick-btn user">👤 Участник</button>
             </div>
             <div class="warning-note">
                 ⚡ Тестовые аккаунты создаются автоматически

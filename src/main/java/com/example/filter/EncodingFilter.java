@@ -1,13 +1,10 @@
 package com.example.filter;
 
-import javax.servlet.*;
-import javax.servlet.annotation.WebFilter;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.*;
+import jakarta.servlet.annotation.WebFilter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-
-/**
- * Фильтр для установки кодировки UTF-8*/
 
 @WebFilter("/*")
 public class EncodingFilter implements Filter {
@@ -17,7 +14,6 @@ public class EncodingFilter implements Filter {
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
-        // Можно переопределить кодировку через параметры web.xml
         String configEncoding = filterConfig.getInitParameter("encoding");
         if (configEncoding != null && !configEncoding.isEmpty()) {
             encoding = configEncoding;
@@ -32,19 +28,11 @@ public class EncodingFilter implements Filter {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
         HttpServletResponse httpResponse = (HttpServletResponse) response;
 
-        // Устанавливаем кодировку для запроса
         httpRequest.setCharacterEncoding(encoding);
-
-        // Устанавливаем кодировку для ответа
         httpResponse.setCharacterEncoding(encoding);
-
-        // Устанавливаем Content-Type для HTML страниц
         httpResponse.setContentType("text/html; charset=" + encoding);
-
-        // Добавляем заголовок для браузера
         httpResponse.setHeader("Content-Type", "text/html; charset=" + encoding);
 
-        // Продолжаем обработку
         chain.doFilter(httpRequest, httpResponse);
     }
 

@@ -4,20 +4,21 @@ import com.example.dao.UserDAO;
 import com.example.dao.TeamDAO;
 import com.example.model.User;
 import com.example.model.Team;
-import org.apache.commons.fileupload.FileItem;
-import org.apache.commons.fileupload.disk.DiskFileItemFactory;
-import org.apache.commons.fileupload.servlet.ServletFileUpload;
+import com.example.util.RedisCache;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import org.apache.commons.fileupload2.core.FileItem;
+import org.apache.commons.fileupload2.core.DiskFileItemFactory;
+import org.apache.commons.fileupload2.core.FileItem;
+import org.apache.commons.fileupload2.jakarta.servlet5.JakartaServletFileUpload;
 
-import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 
 @WebServlet("/profile")
 public class ProfileServlet extends HttpServlet {
@@ -41,7 +42,20 @@ public class ProfileServlet extends HttpServlet {
         int profileId = (idParam != null && !idParam.isEmpty()) ? Integer.parseInt(idParam) : currentUserId;
         boolean isOwnProfile = (profileId == currentUserId);
 
-        User user = userDAO.findById(profileId);
+        // Получаем пользователя из кэша или БД
+        String userCacheKey = "profile_user_" + profileId;
+        User user = RedisCache.get(userCacheKey, User.class);
+
+        if (user == null) {
+            System.out.println("Redis MISS: " + userCacheKey + " - loading from DB");
+            user = userDAO.findById(profileId);
+            if (user != null) {
+                RedisCache.put(userCacheKey, user, 30);
+            }
+        } else {
+            System.out.println("Redis HIT: " + userCacheKey);
+        }
+
         if (user == null) {
             resp.sendRedirect(req.getContextPath() + "/contests");
             return;
@@ -51,7 +65,6 @@ public class ProfileServlet extends HttpServlet {
         int solvedCount = userDAO.getUserSolvedCount(profileId);
         int rank = userDAO.getUserRank(profileId);
 
-        // Получаем текущую команду пользователя (только одну)
         Team userTeam = teamDAO.getCurrentUserTeam(profileId);
         boolean isCaptain = (userTeam != null && userTeam.getCaptainId() == profileId);
 
@@ -79,6 +92,10 @@ public class ProfileServlet extends HttpServlet {
 
         int userId = (int) session.getAttribute("userId");
         String action = req.getParameter("action");
+
+        // Инвалидируем кэш профиля при любом обновлении
+        RedisCache.remove("profile_user_" + userId);
+        RedisCache.remove("user_" + userId);
 
         if ("update".equals(action)) {
             String bio = req.getParameter("bio");
@@ -112,28 +129,39 @@ public class ProfileServlet extends HttpServlet {
     }
 
     private String uploadAvatar(HttpServletRequest req, int userId) throws Exception {
-        if (!ServletFileUpload.isMultipartContent(req)) {
+        System.out.println("=== UPLOAD AVATAR START ===");
+
+        if (!JakartaServletFileUpload.isMultipartContent(req)) {
+            System.out.println("Not a multipart request!");
             return null;
         }
 
-        DiskFileItemFactory factory = new DiskFileItemFactory();
-        ServletFileUpload upload = new ServletFileUpload(factory);
+        DiskFileItemFactory factory = DiskFileItemFactory.builder().get();
+
+        JakartaServletFileUpload upload = new JakartaServletFileUpload(factory);
+        upload.setFileSizeMax(5 * 1024 * 1024); // 5 MB
+        upload.setSizeMax(10 * 1024 * 1024);    // 10 MB
 
         String uploadPath = getServletContext().getRealPath("") + File.separator + AVATAR_DIR;
+        System.out.println("Upload path: " + uploadPath);
+
         File uploadDir = new File(uploadPath);
         if (!uploadDir.exists()) {
             uploadDir.mkdirs();
         }
 
         List<FileItem> items = upload.parseRequest(req);
+        System.out.println("Number of items: " + items.size());
+
         for (FileItem item : items) {
             if (!item.isFormField() && item.getSize() > 0) {
                 String fileName = System.currentTimeMillis() + "_" + userId + ".jpg";
                 String filePath = uploadPath + File.separator + fileName;
-                item.write(new File(filePath));
+                item.write(new File(filePath).toPath());
                 return AVATAR_DIR + fileName;
             }
         }
+
         return null;
     }
 }

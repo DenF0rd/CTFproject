@@ -3,12 +3,12 @@ package com.example.servlet;
 import com.example.dao.UserDAO;
 import com.example.model.User;
 import com.example.util.PasswordUtil;
-import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 
 @WebServlet("/quick-login")
@@ -29,9 +29,6 @@ public class QuickLoginServlet extends HttpServlet {
                 break;
             case "user":
                 user = getOrCreateUser();
-                break;
-            case "test":
-                user = getOrCreateTestUser();
                 break;
             default:
                 resp.sendRedirect(req.getContextPath() + "/login");
@@ -77,7 +74,7 @@ public class QuickLoginServlet extends HttpServlet {
     }
 
     private User getOrCreateUser() {
-        String email = "player@ctf.local";
+        String email = "testplayer@ctf.local";
         User user = userDAO.findByEmail(email);
         if (user == null) {
             // Хэшируем пароль перед сохранением
@@ -87,24 +84,6 @@ public class QuickLoginServlet extends HttpServlet {
             if (user != null) {
                 userDAO.verifyEmailSimple(email);
                 userDAO.updateUserRating(user.getId(), 100);
-            }
-        }
-        if (user != null) {
-            user = userDAO.findById(user.getId());
-        }
-        return user;
-    }
-
-    private User getOrCreateTestUser() {
-        String email = "test@ctf.local";
-        User user = userDAO.findByEmail(email);
-        if (user == null) {
-            // Хэшируем пароль перед сохранением
-            String hashedPassword = PasswordUtil.hashPassword("test123");
-            userDAO.registerUser("Tester", email, hashedPassword);
-            user = userDAO.findByEmail(email);
-            if (user != null) {
-                userDAO.verifyEmailSimple(email);
             }
         }
         if (user != null) {

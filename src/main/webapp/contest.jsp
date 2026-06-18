@@ -6,9 +6,11 @@
         return;
     }
 
+    // ===== ПОЛУЧАЕМ ДАННЫЕ ИЗ ЗАПРОСА =====
     Contest contest = (Contest) request.getAttribute("contest");
     List<Map<String, Object>> tasks = (List<Map<String, Object>>) request.getAttribute("tasks");
     List<Map<String, Object>> leaderboard = (List<Map<String, Object>>) request.getAttribute("leaderboard");
+    List<Map<String, Object>> teamLeaderboard = (List<Map<String, Object>>) request.getAttribute("teamLeaderboard");
     Team userTeam = (Team) request.getAttribute("userTeam");
     Boolean isJoinedObj = (Boolean) request.getAttribute("isJoined");
     boolean isJoined = isJoinedObj != null && isJoinedObj;
@@ -19,13 +21,20 @@
     boolean isAdmin = session.getAttribute("isAdmin") != null && (Boolean) session.getAttribute("isAdmin");
     int userContestPoints = (int) request.getAttribute("userContestPoints");
 
-    // Определяем, является ли соревнование завершённым
-    boolean isFinished = contest.getEndTime() != null &&
-            contest.getEndTime().before(new java.util.Date());
-    boolean isActive = !isFinished && contest.isActive();
+    // ===== СТАТУСЫ СОРЕВНОВАНИЯ =====
+    Boolean isUpcomingObj = (Boolean) request.getAttribute("isUpcoming");
+    boolean isUpcoming = isUpcomingObj != null && isUpcomingObj;
+
+    Boolean isFinishedObj = (Boolean) request.getAttribute("isFinished");
+    boolean isFinished = isFinishedObj != null && isFinishedObj;
+
+    Boolean isActiveObj = (Boolean) request.getAttribute("isActive");
+    boolean isActive = isActiveObj != null && isActiveObj;
+    // ================================
 
     if (tasks == null) tasks = new ArrayList<>();
     if (leaderboard == null) leaderboard = new ArrayList<>();
+    if (teamLeaderboard == null) teamLeaderboard = new ArrayList<>();
 
     String activeTab = request.getParameter("tab");
     if (activeTab == null) activeTab = "tasks";
@@ -215,12 +224,29 @@
             background: rgba(139, 92, 246, 0.3);
         }
 
+        .btn-disabled {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.4);
+            cursor: not-allowed;
+        }
+
         .finished-banner {
             background: rgba(107, 114, 128, 0.3);
             border-radius: 16px;
             padding: 1rem;
             margin-top: 1rem;
             text-align: center;
+        }
+
+        .upcoming-banner {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 16px;
+            padding: 1rem;
+            margin-top: 1rem;
+            text-align: center;
+            color: #fcd34d;
         }
 
         .tabs {
@@ -346,6 +372,14 @@
             padding: 2px 8px;
             border-radius: 20px;
             font-size: 0.7rem;
+        }
+
+        .locked-badge {
+            background: #f59e0b;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 0.6rem;
+            color: #1a1a2e;
         }
 
         .archive-badge {
@@ -485,6 +519,47 @@
 </nav>
 
 <div class="container">
+    <%
+        // Сообщения из сессии
+        String taskError = (String) session.getAttribute("taskError");
+        String taskMessage = (String) session.getAttribute("taskMessage");
+        String success = (String) session.getAttribute("success");
+        String error = (String) session.getAttribute("error");
+
+        if (taskError != null) {
+            session.removeAttribute("taskError");
+    %>
+    <div class="message-error">
+        <i class="fas fa-exclamation-circle"></i> <%= taskError %>
+    </div>
+    <%
+        }
+        if (taskMessage != null) {
+            session.removeAttribute("taskMessage");
+    %>
+    <div class="message-success">
+        <i class="fas fa-check-circle"></i> <%= taskMessage %>
+    </div>
+    <%
+        }
+        if (success != null) {
+            session.removeAttribute("success");
+    %>
+    <div class="message-success">
+        <i class="fas fa-check-circle"></i> <%= success %>
+    </div>
+    <%
+        }
+        if (error != null) {
+            session.removeAttribute("error");
+    %>
+    <div class="message-error">
+        <i class="fas fa-exclamation-circle"></i> <%= error %>
+    </div>
+    <%
+        }
+    %>
+
     <!-- Информация о соревновании -->
     <div class="contest-header">
         <div class="contest-title">
@@ -499,12 +574,28 @@
                 <i class="fas fa-archive"></i> Завершено
             </span>
             <% } %>
+            <% if (isUpcoming) { %>
+            <span style="font-size: 1rem; background: #f59e0b; padding: 4px 12px; border-radius: 20px; margin-left: 1rem; color: #1a1a2e;">
+                <i class="fas fa-clock"></i> Скоро
+            </span>
+            <% } %>
         </div>
         <div class="contest-dates">
             <span><i class="far fa-calendar-alt"></i> Начало: <%= contest.getStartTime() %></span>
             <span><i class="far fa-calendar-check"></i> Окончание: <%= contest.getEndTime() %></span>
         </div>
         <div class="contest-description"><%= contest.getDescription() %></div>
+
+        <!-- Баннер для будущих соревнований -->
+        <% if (isUpcoming) { %>
+        <div class="upcoming-banner">
+            <i class="fas fa-clock"></i>
+            Соревнование начнётся <strong><%= contest.getStartTime() %></strong>
+            <span style="display: block; font-size: 0.8rem; margin-top: 0.25rem; opacity: 0.7;">
+                Задачи станут доступны после старта
+            </span>
+        </div>
+        <% } %>
 
         <!-- Кнопки действий - показываем только для активных соревнований -->
         <% if (isActive && !isCompletedForUser) { %>
@@ -533,6 +624,22 @@
         <div class="finished-banner">
             <i class="fas fa-archive"></i> Это соревнование завершено. Доступен только просмотр результатов.
         </div>
+        <% } else if (isUpcoming) { %>
+        <div class="contest-actions">
+            <% if (isJoined) { %>
+            <form action="<%= request.getContextPath() %>/contest" method="post" style="display:inline;">
+                <input type="hidden" name="action" value="leave">
+                <input type="hidden" name="contestId" value="<%= contestId %>">
+                <button type="submit" class="btn btn-danger"><i class="fas fa-sign-out-alt"></i> Отменить участие</button>
+            </form>
+            <% } else { %>
+            <form action="<%= request.getContextPath() %>/contest" method="post" style="display:inline;">
+                <input type="hidden" name="action" value="join">
+                <input type="hidden" name="contestId" value="<%= contestId %>">
+                <button type="submit" class="btn btn-primary"><i class="fas fa-user-plus"></i> Зарегистрироваться</button>
+            </form>
+            <% } %>
+        </div>
         <% } %>
 
         <% if (isJoined && !isCompletedForUser && userContestPoints > 0 && isActive) { %>
@@ -547,6 +654,7 @@
     <div class="tabs">
         <button class="tab-btn <%= "tasks".equals(activeTab) ? "active" : "" %>" data-tab="tasks">📋 Задачи</button>
         <button class="tab-btn <%= "leaderboard".equals(activeTab) ? "active" : "" %>" data-tab="leaderboard">🏆 Рейтинг</button>
+        <button class="tab-btn <%= "team-leaderboard".equals(activeTab) ? "active" : "" %>" data-tab="team-leaderboard">👥 Команды</button>
         <% if (isActive && isJoined && !isCompletedForUser) { %>
         <button class="tab-btn <%= "team".equals(activeTab) ? "active" : "" %>" data-tab="team">👥 Моя команда</button>
         <% } %>
@@ -563,8 +671,13 @@
         <div class="tasks-table">
             <% for (Map<String, Object> task : tasks) {
                 boolean isSolved = (boolean) task.get("is_solved");
-                // Для архивных соревнований задачи не кликабельны, но видны
-                boolean isClickable = isActive && !isCompletedForUser;
+
+                // Для будущих соревнований — показываем замок
+                boolean isLocked = isUpcoming;
+
+                // Определяем, можно ли кликнуть по задаче
+                boolean isClickable = isActive && !isCompletedForUser && !isFinished && !isLocked;
+
                 String clickableClass = isClickable ? "clickable" : "not-clickable";
                 String onclickAttr = isClickable ?
                         "onclick=\"location.href='" + request.getContextPath() + "/task?id=" + task.get("id") + "&contestId=" + contestId + "'\"" : "";
@@ -573,28 +686,58 @@
                 <div class="task-info">
                     <div class="task-title">
                         <%= task.get("title") %>
+
                         <% if (isSolved) { %>
                         <span class="solved-badge"><i class="fas fa-check"></i> Решено</span>
                         <% } %>
-                        <% if (!isClickable && !isSolved && !isCompletedForUser) { %>
+
+                        <% if (isLocked) { %>
+                        <span class="locked-badge">
+                                    <i class="fas fa-lock"></i> Скоро
+                                </span>
+                        <% } %>
+
+                        <% if (isFinished && !isSolved) { %>
                         <span class="archive-badge">
-                                <i class="fas fa-archive"></i> Архив
-                            </span>
+                                    <i class="fas fa-archive"></i> Архив
+                                </span>
                         <% } %>
                     </div>
-                    <div class="task-category"><i class="fas fa-tag"></i> <%= task.get("category") != null ? task.get("category") : "Без категории" %></div>
+                    <div class="task-category">
+                        <i class="fas fa-tag"></i>
+                        <%= task.get("category") != null ? task.get("category") : "Без категории" %>
+                    </div>
                 </div>
                 <div class="task-stats">
-                    <div class="task-points"><%= task.get("points") %> pts</div>
-                    <div class="task-solved"><i class="fas fa-users"></i> <%= task.get("solves_count") %> решили</div>
+                    <div class="task-points">
+                        <%= isLocked ? "❓" : task.get("points") %>
+                        <%= isLocked ? "" : "pts" %>
+                    </div>
+                    <div class="task-solved">
+                        <i class="fas fa-users"></i>
+                        <%= isLocked ? "—" : task.get("solves_count") + " решили" %>
+                    </div>
                 </div>
             </div>
             <% } %>
         </div>
+
+        <%-- Если соревнование ещё не началось, показываем сообщение --%>
+        <% if (isUpcoming) { %>
+        <div style="text-align: center; margin-top: 1.5rem; padding: 1rem; background: rgba(245, 158, 11, 0.1); border-radius: 16px; border: 1px solid rgba(245, 158, 11, 0.3);">
+            <i class="fas fa-clock" style="color: #f59e0b;"></i>
+            <span style="color: rgba(255,255,255,0.7);">
+                        Соревнование начнётся <strong><%= contest.getStartTime() %></strong>
+                    </span>
+            <span style="display: block; color: rgba(255,255,255,0.4); font-size: 0.8rem; margin-top: 0.25rem;">
+                        Содержимое задач будет доступно после старта
+                    </span>
+        </div>
+        <% } %>
         <% } %>
     </div>
 
-    <!-- Вкладка: Рейтинг соревнования -->
+    <!-- Вкладка: Рейтинг -->
     <div id="tab-leaderboard" class="tab-content <%= "leaderboard".equals(activeTab) ? "active" : "" %>">
         <% if (leaderboard.isEmpty()) { %>
         <div class="finished-message">
@@ -607,7 +750,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
                 <div>
                     <i class="fas fa-trophy" style="color: #f59e0b;"></i>
-                    <strong>Рейтинг соревнования</strong>
+                    <strong>Индивидуальный рейтинг</strong>
                     <span style="font-size: 0.7rem; color: #a78bfa; margin-left: 0.5rem;">(только очки в этом соревновании)</span>
                 </div>
                 <div>
@@ -632,6 +775,64 @@
                 <div class="rank-username"><%= entry.get("username") %><%= isCurrentUser ? " <span style='color:#c084fc;'>(Вы)</span>" : "" %></div>
                 <div class="rank-score"><%= entry.get("score") %> pts</div>
                 <div class="rank-solved"><i class="fas fa-check-circle"></i> <%= entry.get("solved") %> задач</div>
+            </div>
+            <% } %>
+        </div>
+        <% } %>
+    </div>
+
+    <!-- Вкладка: Командный рейтинг -->
+    <div id="tab-team-leaderboard" class="tab-content <%= "team-leaderboard".equals(activeTab) ? "active" : "" %>">
+        <%
+            if (teamLeaderboard == null) teamLeaderboard = new ArrayList<>();
+            if (teamLeaderboard.isEmpty()) {
+        %>
+        <div class="finished-message">
+            <i class="fas fa-users" style="font-size: 3rem; opacity: 0.5;"></i>
+            <p style="margin-top: 1rem;">Пока нет командных результатов</p>
+            <p style="font-size: 0.8rem;">Участники должны быть в командах, чтобы появиться в этом рейтинге</p>
+        </div>
+        <% } else { %>
+        <div class="leaderboard-header">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                <div>
+                    <i class="fas fa-trophy" style="color: #f59e0b;"></i>
+                    <strong>Командный рейтинг</strong>
+                    <span style="font-size: 0.7rem; color: #a78bfa; margin-left: 0.5rem;">
+                            (сумма очков всех участников команды)
+                        </span>
+                </div>
+                <div>
+                        <span style="background: rgba(139,92,246,0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.7rem;">
+                            <i class="fas fa-users"></i> Команд: <%= teamLeaderboard.size() %>
+                        </span>
+                </div>
+            </div>
+        </div>
+        <div class="leaderboard-table">
+            <div style="display: grid; grid-template-columns: 60px 1fr 100px 100px 100px; padding: 0.8rem 1rem; background: rgba(139,92,246,0.2); border-radius: 12px; margin-bottom: 0.5rem;">
+                <div>Место</div>
+                <div>Команда</div>
+                <div>Очки</div>
+                <div>Решено</div>
+                <div>Участников</div>
+            </div>
+            <%
+                int userTeamId = -1;
+                if (userTeam != null) userTeamId = userTeam.getId();
+                for (Map<String, Object> entry : teamLeaderboard) {
+                    boolean isUserTeam = (int) entry.get("teamId") == userTeamId;
+            %>
+            <div class="rank-row <%= isUserTeam ? "current-user" : "" %>"
+                 style="display: grid; grid-template-columns: 60px 1fr 100px 100px 100px; padding: 0.8rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <div class="rank-number">#<%= entry.get("rank") %></div>
+                <div class="rank-username">
+                    <%= entry.get("teamName") %>
+                    <%= isUserTeam ? " <span style='color:#c084fc;'>(Ваша команда)</span>" : "" %>
+                </div>
+                <div class="rank-score"><%= entry.get("totalPoints") %> pts</div>
+                <div class="rank-solved"><i class="fas fa-check-circle"></i> <%= entry.get("totalSolved") %></div>
+                <div><i class="fas fa-users"></i> <%= entry.get("membersCount") %></div>
             </div>
             <% } %>
         </div>

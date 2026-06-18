@@ -347,7 +347,7 @@
         <a href="${pageContext.request.contextPath}/scoreboard">Рейтинг</a>
         <a href="${pageContext.request.contextPath}/profile?id=<%= session.getAttribute("userId") %>">Профиль</a>
         <% if (isAdmin) { %>
-        <a href="${pageContext.request.contextPath}/admin">👑 Админ-панель</a>
+        <a href="${pageContext.request.contextPath}/admin">Админ-панель</a>
         <% } %>
     </div>
     <a href="${pageContext.request.contextPath}/logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Выйти</a>

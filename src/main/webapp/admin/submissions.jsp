@@ -60,6 +60,11 @@
         .badge-correct { background: rgba(16,185,129,0.2); color: #10b981; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; }
         .badge-wrong { background: rgba(239,68,68,0.2); color: #ef4444; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; }
         .flag-text { font-family: monospace; font-size: 0.8rem; max-width: 250px; overflow-x: auto; white-space: nowrap; }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: rgba(255,255,255,0.4);
+        }
         @media (max-width: 768px) {
             .navbar { flex-direction: column; height: auto; padding: 1rem; gap: 0.8rem; }
             .nav-links { flex-wrap: wrap; justify-content: center; }
@@ -86,10 +91,16 @@
     <div class="page-header">
         <a href="${pageContext.request.contextPath}/admin" class="back-link"><i class="fas fa-arrow-left"></i> Назад</a>
         <h1><i class="fas fa-flag-checkered"></i> Попытки сдачи флагов</h1>
-        <p style="color: rgba(255,255,255,0.6);">Последние 100 попыток</p>
+        <p style="color: rgba(255,255,255,0.6);">Последние 200 попыток</p>
     </div>
 
     <div class="submissions-table">
+        <% if (submissions.isEmpty()) { %>
+        <div class="empty-state">
+            <i class="fas fa-inbox" style="font-size: 3rem; opacity: 0.3;"></i>
+            <p style="margin-top: 1rem;">Пока нет попыток сдачи флагов</p>
+        </div>
+        <% } else { %>
         <table>
             <thead>
             <tr>
@@ -118,12 +129,15 @@
                     <span class="badge-wrong"><i class="fas fa-times"></i> Неправильно</span>
                     <% } %>
                 </td>
-                <td class="<%= isCorrect ? "correct" : "wrong" %>"><%= sub.get("points_awarded") %></td>
+                <td class="<%= isCorrect ? "correct" : "wrong" %>">
+                    <%= sub.get("points_awarded") %> pts
+                </td>
                 <td><%= sub.get("submitted_at") %></td>
             </tr>
             <% } %>
             </tbody>
         </table>
+        <% } %>
     </div>
 </div>
 

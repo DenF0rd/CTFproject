@@ -4,13 +4,14 @@ import com.example.dao.ContestDAO;
 import com.example.dao.TeamDAO;
 import com.example.model.Contest;
 import com.example.model.Team;
-import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -54,6 +55,13 @@ public class ContestServlet extends HttpServlet {
 
         System.out.println("Contest found: " + contest.getTitle());
 
+        // ===== ОПРЕДЕЛЯЕМ СТАТУСЫ =====
+        Date now = new Date();
+        boolean isUpcoming = contest.getStartTime() != null && now.before(contest.getStartTime());
+        boolean isFinished = contest.getEndTime() != null && now.after(contest.getEndTime());
+        boolean isActive = !isUpcoming && !isFinished;
+        // ===============================
+
         // Получаем задачи соревнования
         List<Map<String, Object>> tasks = contestDAO.getContestTasks(contestId, userId);
         System.out.println("Tasks count: " + (tasks != null ? tasks.size() : 0));
@@ -61,6 +69,9 @@ public class ContestServlet extends HttpServlet {
         // Получаем рейтинг
         List<Map<String, Object>> leaderboard = contestDAO.getContestLeaderboard(contestId);
         System.out.println("Leaderboard count: " + (leaderboard != null ? leaderboard.size() : 0));
+
+        // Получаем командный рейтинг
+        List<Map<String, Object>> teamLeaderboard = contestDAO.getTeamLeaderboard(contestId);
 
         // Получаем команду пользователя
         Team userTeam = teamDAO.getTeamByUser(userId);
@@ -72,25 +83,20 @@ public class ContestServlet extends HttpServlet {
 
         // Статусы прохождения
         boolean isCompletedForUser = contest.isUserCompleted();
-
-        boolean isFinished = contest.getEndTime() != null &&
-                contest.getEndTime().before(new java.util.Date());
-        req.setAttribute("isFinished", isFinished);
-
-        // Получаем рейтинг ТОЛЬКО для этого соревнования
-
-// Получаем очки текущего пользователя в этом соревновании
         int userContestPoints = contestDAO.getUserContestPoints(userId, contestId);
 
-        req.setAttribute("leaderboard", leaderboard);
-        req.setAttribute("userContestPoints", userContestPoints);
+        req.setAttribute("isUpcoming", isUpcoming);
+        req.setAttribute("isFinished", isFinished);
+        req.setAttribute("isActive", isActive);
         req.setAttribute("contest", contest);
         req.setAttribute("tasks", tasks != null ? tasks : new java.util.ArrayList<>());
         req.setAttribute("leaderboard", leaderboard != null ? leaderboard : new java.util.ArrayList<>());
+        req.setAttribute("teamLeaderboard", teamLeaderboard != null ? teamLeaderboard : new java.util.ArrayList<>());
         req.setAttribute("userTeam", userTeam);
         req.setAttribute("isJoined", isJoined);
         req.setAttribute("contestId", contestId);
         req.setAttribute("isCompletedForUser", isCompletedForUser);
+        req.setAttribute("userContestPoints", userContestPoints);
         req.setAttribute("username", session.getAttribute("username"));
 
         req.getRequestDispatcher("/contest.jsp").forward(req, resp);
@@ -136,6 +142,4 @@ public class ContestServlet extends HttpServlet {
 
         resp.sendRedirect(req.getContextPath() + "/contest?id=" + contestId);
     }
-
-
 }

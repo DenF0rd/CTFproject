@@ -3,13 +3,13 @@ package com.example.servlet;
 import com.example.dao.UserDAO;
 import com.example.util.EmailUtil;
 import com.example.util.PasswordUtil;
-import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.UUID;
 
 @WebServlet("/register")
 public class RegisterServlet extends HttpServlet {
@@ -69,27 +69,30 @@ public class RegisterServlet extends HttpServlet {
             return;
         }
 
-        // ХЭШИРУЕМ ПАРОЛЬ перед сохранением
+        // Хэшируем пароль
         String hashedPassword = PasswordUtil.hashPassword(password);
         boolean registered = userDAO.registerUser(username, email, hashedPassword);
 
         if (registered) {
-            String verificationCode = UUID.randomUUID().toString();
+            // Генерируем 6-значный код
+            String verificationCode = EmailUtil.generateVerificationCode();
+
+            // Сохраняем код в БД
             userDAO.saveVerificationCode(email, verificationCode);
 
             try {
+                // Отправляем письмо с кодом
                 EmailUtil.sendVerificationEmail(email, verificationCode);
-                req.setAttribute("message", "Регистрация успешна! Проверьте почту для подтверждения.");
+
+                // Перенаправляем на страницу ввода кода
                 req.setAttribute("email", email);
-                req.getRequestDispatcher("/register-success.jsp").forward(req, resp);
+                req.getRequestDispatcher("/verify-code.jsp").forward(req, resp);
+
             } catch (Exception e) {
                 e.printStackTrace();
-                req.setAttribute("error", "Ошибка отправки письма: " + e.getMessage());
+                req.setAttribute("error", "Ошибка отправки кода: " + e.getMessage());
                 req.getRequestDispatcher("/register.jsp").forward(req, resp);
             }
-        } else {
-            req.setAttribute("error", "Ошибка регистрации. Попробуйте позже.");
-            req.getRequestDispatcher("/register.jsp").forward(req, resp);
         }
     }
 

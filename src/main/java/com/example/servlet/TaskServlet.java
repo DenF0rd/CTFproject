@@ -3,13 +3,14 @@ package com.example.servlet;
 import com.example.dao.ContestDAO;
 import com.example.dao.TaskDAO;
 import com.example.model.Contest;
-import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -53,19 +54,29 @@ public class TaskServlet extends HttpServlet {
             return;
         }
 
+        // ===== ПРОВЕРКА: соревнование ещё не началось =====
+        Date now = new Date();
+        boolean isUpcoming = contest.getStartTime() != null && now.before(contest.getStartTime());
+        if (isUpcoming) {
+            session.setAttribute("taskError", "❌ Это соревнование ещё не началось. Старт: " + contest.getStartTime());
+            resp.sendRedirect(req.getContextPath() + "/contest?id=" + contestId);
+            return;
+        }
+        // ==================================================
+
         // Проверяем, участвует ли пользователь в соревновании
         boolean isJoined = contestDAO.isUserJoined(contestId, userId);
         if (!isJoined) {
-            session.setAttribute("taskError", "Вы не участвуете в этом соревновании. Присоединитесь, чтобы решать задачи.");
+            session.setAttribute("taskError", "❌ Вы не участвуете в этом соревновании. Присоединитесь, чтобы решать задачи.");
             resp.sendRedirect(req.getContextPath() + "/contest?id=" + contestId);
             return;
         }
 
         // Проверяем, активно ли соревнование (не завершено)
         boolean isFinished = contest.getEndTime() != null &&
-                contest.getEndTime().before(new java.util.Date());
+                contest.getEndTime().before(now);
         if (isFinished) {
-            session.setAttribute("taskError", "Это соревнование завершено. Нельзя решать задачи.");
+            session.setAttribute("taskError", "❌ Это соревнование завершено. Нельзя решать задачи.");
             resp.sendRedirect(req.getContextPath() + "/contest?id=" + contestId);
             return;
         }
@@ -75,6 +86,14 @@ public class TaskServlet extends HttpServlet {
             resp.sendRedirect(req.getContextPath() + "/contest?id=" + contestId);
             return;
         }
+
+        // Получаем очки, которые пользователь реально получил за эту задачу
+        int userEarnedPoints = 0;
+        boolean isSolved = task != null && (boolean) task.get("is_solved");
+        if (isSolved) {
+            userEarnedPoints = taskDAO.getPointsEarnedForTask(userId, taskId);
+        }
+        req.setAttribute("userEarnedPoints", userEarnedPoints);
 
         List<Map<String, Object>> submissionHistory = taskDAO.getSubmissionHistory(taskId, userId);
 
@@ -108,14 +127,6 @@ public class TaskServlet extends HttpServlet {
         int contestId = Integer.parseInt(req.getParameter("contestId"));
         String flag = req.getParameter("flag");
 
-        // Проверяем, участвует ли пользователь в соревновании
-        boolean isJoined = contestDAO.isUserJoined(contestId, userId);
-        if (!isJoined) {
-            session.setAttribute("taskError", "Вы не участвуете в этом соревновании. Присоединитесь, чтобы решать задачи.");
-            resp.sendRedirect(req.getContextPath() + "/contest?id=" + contestId);
-            return;
-        }
-
         // Проверяем, активно ли соревнование
         Contest contest = contestDAO.getContestById(contestId, userId);
         if (contest == null) {
@@ -123,34 +134,52 @@ public class TaskServlet extends HttpServlet {
             return;
         }
 
+        // ===== ПРОВЕРКА: соревнование ещё не началось =====
+        Date now = new Date();
+        boolean isUpcoming = contest.getStartTime() != null && now.before(contest.getStartTime());
+        if (isUpcoming) {
+            session.setAttribute("taskError", "❌ Это соревнование ещё не началось. Старт: " + contest.getStartTime());
+            resp.sendRedirect(req.getContextPath() + "/contest?id=" + contestId);
+            return;
+        }
+        // ==================================================
+
         boolean isFinished = contest.getEndTime() != null &&
-                contest.getEndTime().before(new java.util.Date());
+                contest.getEndTime().before(now);
         if (isFinished) {
-            session.setAttribute("taskError", "Это соревнование завершено. Нельзя решать задачи.");
+            session.setAttribute("taskError", "❌ Это соревнование завершено. Нельзя решать задачи.");
             resp.sendRedirect(req.getContextPath() + "/contest?id=" + contestId);
             return;
         }
 
-        // Уникальный ключ для этого запроса
+        // Проверяем, участвует ли пользователь в соревновании
+        boolean isJoined = contestDAO.isUserJoined(contestId, userId);
+        if (!isJoined) {
+            session.setAttribute("taskError", "❌ Вы не участвуете в этом соревновании. Присоединитесь, чтобы решать задачи.");
+            resp.sendRedirect(req.getContextPath() + "/contest?id=" + contestId);
+            return;
+        }
+
+        // Уникальный ключ для этого запроса (защита от двойных кликов)
         String requestKey = userId + "_" + taskId + "_" + flag.hashCode();
         Long lastProcessed = processedRequests.get(requestKey);
-        long now = System.currentTimeMillis();
+        long nowTime = System.currentTimeMillis();
 
-        if (lastProcessed != null && (now - lastProcessed) < REQUEST_TIMEOUT) {
+        if (lastProcessed != null && (nowTime - lastProcessed) < REQUEST_TIMEOUT) {
             resp.sendRedirect(req.getContextPath() + "/task?id=" + taskId + "&contestId=" + contestId);
             return;
         }
 
-        processedRequests.put(requestKey, now);
+        processedRequests.put(requestKey, nowTime);
 
         if (processedRequests.size() > 1000) {
-            processedRequests.entrySet().removeIf(entry -> (now - entry.getValue()) > REQUEST_TIMEOUT);
+            processedRequests.entrySet().removeIf(entry -> (nowTime - entry.getValue()) > REQUEST_TIMEOUT);
         }
 
         try {
             // Проверяем, не решена ли уже задача
             if (taskDAO.isTaskSolved(userId, taskId)) {
-                session.setAttribute("taskError", "Вы уже решили эту задачу!");
+                session.setAttribute("taskError", "❌ Вы уже решили эту задачу!");
                 resp.sendRedirect(req.getContextPath() + "/task?id=" + taskId + "&contestId=" + contestId);
                 return;
             }
@@ -164,7 +193,9 @@ public class TaskServlet extends HttpServlet {
             String message = (String) result[2];
 
             if (isCorrect) {
-                contestDAO.updateUserContestPoints(userId, contestId, pointsAwarded);
+                //contestDAO.updateUserContestPoints(userId, contestId, pointsAwarded);
+                // Пересчёт стоимости задачи
+                taskDAO.recalculateTaskPoints(taskId);
                 session.setAttribute("taskMessage", "✅ " + message + " +" + pointsAwarded + " очков!");
             } else {
                 session.setAttribute("taskError", "❌ " + message);

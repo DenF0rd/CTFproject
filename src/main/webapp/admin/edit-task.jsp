@@ -27,6 +27,54 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* Стили для выпадающего списка в тёмной теме */
+        select {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 16px;
+            color: white;
+            font-size: 1rem;
+            font-family: inherit;
+            appearance: none;  /* Убираем стандартную стрелку */
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b5cf6' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+            cursor: pointer;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.2);
+        }
+
+        /* Стили для опций */
+        select option {
+            background: #1a1a2e;
+            color: white;
+            padding: 8px;
+        }
+
+        select option:hover,
+        select option:checked {
+            background: rgba(139, 92, 246, 0.3);
+        }
+
+        /* Для браузеров на WebKit */
+        select::-webkit-scrollbar {
+            width: 8px;
+            background: #1a1a2e;
+            border-radius: 4px;
+        }
+
+        select::-webkit-scrollbar-thumb {
+            background: #8b5cf6;
+            border-radius: 4px;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Poppins', sans-serif;
@@ -71,9 +119,13 @@
         .btn-secondary { background: rgba(255,255,255,0.1); color: white; }
         .btn-secondary:hover { background: rgba(139,92,246,0.3); }
         .warning { color: #f59e0b; font-size: 0.75rem; margin-top: 0.25rem; }
+        .hint-text { color: rgba(255,255,255,0.5); font-size: 0.8rem; margin-top: 0.25rem; }
+        .row { display: flex; gap: 1rem; }
+        .row .form-group { flex: 1; }
         @media (max-width: 768px) {
             .navbar { flex-direction: column; height: auto; padding: 1rem; gap: 0.8rem; }
             .nav-links { flex-wrap: wrap; justify-content: center; }
+            .row { flex-direction: column; gap: 0; }
         }
     </style>
 </head>
@@ -127,9 +179,26 @@
                 <textarea name="description" rows="6" required><%= isEdit ? task.getDescription() : "" %></textarea>
             </div>
 
+            <div class="row">
+                <div class="form-group">
+                    <label>Базовая стоимость (макс. очки)</label>
+                    <input type="number" name="basePoints" required
+                           value="<%= isEdit ? task.getBasePoints() : 100 %>" min="10">
+                    <div class="hint-text">Максимальное количество очков за задачу</div>
+                </div>
+                <div class="form-group">
+                    <label>Минимальная стоимость</label>
+                    <input type="number" name="minPoints" required
+                           value="<%= isEdit ? task.getMinPoints() : 10 %>" min="1">
+                    <div class="hint-text">Минимальное количество очков после снижения</div>
+                </div>
+            </div>
+
             <div class="form-group">
-                <label>Количество очков</label>
-                <input type="number" name="points" required value="<%= isEdit ? task.getPoints() : "" %>">
+                <label>Текущая стоимость (начальная = базовая)</label>
+                <input type="number" name="points" required
+                       value="<%= isEdit ? task.getPoints() : "" %>" min="1">
+                <div class="hint-text">Обычно равна базовой стоимости при создании</div>
             </div>
 
             <div class="form-group">

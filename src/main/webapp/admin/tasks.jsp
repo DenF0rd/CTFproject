@@ -89,14 +89,19 @@
     <a href="${pageContext.request.contextPath}/logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Выйти</a>
 </nav>
 
-<div class="container">
-    <div class="page-header">
-        <div>
-            <a href="${pageContext.request.contextPath}/admin" class="back-link"><i class="fas fa-arrow-left"></i> Назад</a>
-            <h1 style="margin-top: 0.5rem;"><i class="fas fa-tasks"></i> Управление задачами</h1>
-        </div>
-        <a href="${pageContext.request.contextPath}/admin/edit-task" class="btn-primary"><i class="fas fa-plus"></i> Создать задачу</a>
+<div class="page-header">
+    <div>
+        <a href="${pageContext.request.contextPath}/admin" class="back-link"><i class="fas fa-arrow-left"></i> Назад</a>
+        <h1 style="margin-top: 0.5rem;"><i class="fas fa-tasks"></i> Управление задачами</h1>
     </div>
+    <a href="${pageContext.request.contextPath}/admin/edit-task<%
+        Integer preselected = (Integer) request.getAttribute("preselectedContestId");
+        if (preselected != null) {
+    %>?contestId=<%= preselected %><% } %>"
+       class="btn-primary">
+        <i class="fas fa-plus"></i> Создать задачу
+    </a>
+</div>
 
     <div class="filter-bar">
         <span>Фильтр по соревнованию:</span>
